@@ -1,0 +1,16 @@
+package: github.com/dkoshkin/kube-external-dns
+import:
+- package: github.com/Sirupsen/logrus
+  version: ^0.11.5
+- package: github.com/crackcomm/cloudflare
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: k8s.io/client-go
+  version: ^2.0.0
+  subpackages:
+  - kubernetes
+  - pkg/api/v1
+  - pkg/fields
+  - tools/cache
+  - tools/clientcmd
