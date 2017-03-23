@@ -1,0 +1,14 @@
+machine:
+  services:
+    - docker
+dependencies:
+  override: 
+    - make dependencies
+## Customize deployment commands
+deployment:
+  staging:
+    branch: master
+    commands:
+      # build image and push to Dockerhub
+      - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+      - make release
