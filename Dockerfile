@@ -1,7 +1,7 @@
 FROM golang:1.8-alpine
 EXPOSE 8080
 
-ADD kube-external-dns /
+ADD kube-external-dns /app
 
-CMD ["/kube-external-dns"]
+CMD ["/app"]
 

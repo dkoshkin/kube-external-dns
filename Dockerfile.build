@@ -1,0 +1,6 @@
+FROM golang:1.8
+
+RUN apt-get update && apt-get install netcat -y
+RUN curl -s https://glide.sh/get | sh
+
+ENV GOPATH /go
