@@ -3,8 +3,10 @@ machine:
     - docker
 dependencies:
   override: 
-    - make dependencies
-## Customize deployment commands
+    - make vendor
+test:
+  override:
+    - make test
 deployment:
   staging:
     branch: master
