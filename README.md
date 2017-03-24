@@ -2,6 +2,8 @@
 
 Thi is a Kubernetes service that watches (in all namespaces) for services created, updated, and deleted in the cluster and confiugres external DNS records in public DNS providers.
 
+The service relies on the publicly reachable IPs created in supported clouds with the `LoadBalancer` Kubernetes service [type](https://kubernetes.io/docs/user-guide/services/#type-loadbalancer). 
+
 To use add a few annotations in your service resource
 ```
 metadata:
@@ -25,6 +27,8 @@ If you want to use multiple providers pass the credentials and use the appropria
 * CloudFlare  
 Requires: `CLOUDFLARE_EMAIL` and `CLOUDFLARE_KEY`   
 Annotation: `kube.external.dns.io/provider: "cloudflare"`  
-* SimpleDNS
+* DNSimple
+Requires: `DNSIMPLE_EMAIL` and `DNSIMPLE_TOKEN`   
+Annotation: `kube.external.dns.io/provider: "dnsimple"`  
 * Route53
 * DigitalOcean
