@@ -31,4 +31,6 @@ Annotation: `kube.external.dns.io/provider: "cloudflare"`
 Requires: `DNSIMPLE_EMAIL` and `DNSIMPLE_TOKEN`   
 Annotation: `kube.external.dns.io/provider: "dnsimple"`  
 * Route53
+Requires: `AWS_REGION`, `AWS_ACCESS_KEY` and `AWS_SECRET_KEY`   
+Annotation: `kube.external.dns.io/provider: "route53"`  
 * DigitalOcean
