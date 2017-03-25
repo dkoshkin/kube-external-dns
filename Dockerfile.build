@@ -1,6 +1,8 @@
-FROM golang:1.8
+FROM golang:1.8-alpine
 
-RUN apt-get update && apt-get install netcat -y
+RUN apk add --update curl && \
+    apk add --update git && \
+    rm -rf /var/cache/apk/*
 RUN curl -s https://glide.sh/get | sh
 
 ENV GOPATH /go

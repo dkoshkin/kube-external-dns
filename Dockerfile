@@ -1,4 +1,4 @@
-FROM golang:1.8-alpine
+FROM alpine
 EXPOSE 8080
 
 ADD kube-external-dns /app

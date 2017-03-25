@@ -8,9 +8,16 @@ test:
   override:
     - make test
 deployment:
-  staging:
-    branch: master
+  release:
+    tag: /v[0-9]+(\.[0-9]+)*/
+    owner: dkoshkin
     commands:
       # build image and push to Dockerhub
       - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
-      - make release
+      - VERSION=$CIRCLE_TAG make release
+  staging:
+    branch: master
+    commands:
+      # build image and push to Dockerhub latest
+      - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+      - VERSION=$CIRCLE_TAG make release-latest
