@@ -1,3 +1,4 @@
 .glide
 vendor/
 kube-external-dns
+kubeconfig

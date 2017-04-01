@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	awsRoute53 "github.com/aws/aws-sdk-go/service/route53"
-	"github.com/dkoshkin/kube-external-dns/providers"
+	"github.com/dkoshkin/kube-external-dns/pkg/provider/dns"
 	"github.com/juju/ratelimit"
 )
 
@@ -24,7 +24,7 @@ type Route53Provider struct {
 
 func init() {
 	logrus.Info("Registering 'route53' provider")
-	providers.RegisterProvider("route53", &Route53Provider{})
+	dns.RegisterProvider("route53", &Route53Provider{})
 }
 
 func (r *Route53Provider) Init(rootDomainName string) error {
@@ -74,7 +74,7 @@ func (r *Route53Provider) setHostedZone(rootDomainName string) error {
 
 	r.limiter.Wait(1)
 	params := &awsRoute53.ListHostedZonesByNameInput{
-		DNSName:  aws.String(providers.UnFqdn(rootDomainName)),
+		DNSName:  aws.String(dns.UnFqdn(rootDomainName)),
 		MaxItems: aws.String("1"),
 	}
 	resp, err := r.client.ListHostedZonesByName(params)
@@ -124,19 +124,19 @@ func (r *Route53Provider) HealthCheck() error {
 	return err
 }
 
-func (r *Route53Provider) AddRecord(record providers.DnsRecord) error {
+func (r *Route53Provider) AddRecord(record dns.DnsRecord) error {
 	return r.changeRecord(record, "UPSERT")
 }
 
-func (r *Route53Provider) UpdateRecord(record providers.DnsRecord) error {
+func (r *Route53Provider) UpdateRecord(record dns.DnsRecord) error {
 	return r.changeRecord(record, "UPSERT")
 }
 
-func (r *Route53Provider) RemoveRecord(record providers.DnsRecord) error {
+func (r *Route53Provider) RemoveRecord(record dns.DnsRecord) error {
 	return r.changeRecord(record, "DELETE")
 }
 
-func (r *Route53Provider) changeRecord(record providers.DnsRecord, action string) error {
+func (r *Route53Provider) changeRecord(record dns.DnsRecord, action string) error {
 	r.limiter.Wait(1)
 	records := make([]*awsRoute53.ResourceRecord, len(record.Records))
 	for idx, value := range record.Records {
@@ -170,9 +170,9 @@ func (r *Route53Provider) changeRecord(record providers.DnsRecord, action string
 	return err
 }
 
-func (r *Route53Provider) GetRecords() ([]providers.DnsRecord, error) {
+func (r *Route53Provider) GetRecords() ([]dns.DnsRecord, error) {
 	r.limiter.Wait(1)
-	dnsRecords := []providers.DnsRecord{}
+	dnsRecords := []dns.DnsRecord{}
 	rrSets := []*awsRoute53.ResourceRecordSet{}
 	params := &awsRoute53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(r.hostedZoneId),
@@ -203,7 +203,7 @@ func (r *Route53Provider) GetRecords() ([]providers.DnsRecord, error) {
 			records = append(records, value)
 		}
 
-		dnsRecord := providers.DnsRecord{
+		dnsRecord := dns.DnsRecord{
 			Fqdn:    *rrSet.Name,
 			Records: records,
 			Type:    *rrSet.Type,
@@ -215,7 +215,7 @@ func (r *Route53Provider) GetRecords() ([]providers.DnsRecord, error) {
 	return dnsRecords, nil
 }
 
-func (c *Route53Provider) GetRecord(fqdn string) (*providers.DnsRecord, error) {
+func (c *Route53Provider) GetRecord(fqdn string) (*dns.DnsRecord, error) {
 	records, err := c.GetRecords()
 	if err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ func (c *Route53Provider) GetRecord(fqdn string) (*providers.DnsRecord, error) {
 
 	for _, r := range records {
 		// need to sanitize
-		if r.Fqdn == providers.Fqdn(fqdn) {
+		if r.Fqdn == dns.Fqdn(fqdn) {
 			logrus.Info(r)
 			return &r, nil
 		}

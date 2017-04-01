@@ -7,9 +7,9 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	api "github.com/digitalocean/godo"
-	"github.com/dkoshkin/kube-external-dns/providers"
 	"golang.org/x/oauth2"
 
+	"github.com/dkoshkin/kube-external-dns/pkg/provider/dns"
 	"github.com/juju/ratelimit"
 )
 
@@ -19,8 +19,10 @@ type DigitalOceanProvider struct {
 	limiter        *ratelimit.Bucket
 }
 
+const TTL = 120
+
 func init() {
-	providers.RegisterProvider("digitalocean", &DigitalOceanProvider{})
+	dns.RegisterProvider("digitalocean", &DigitalOceanProvider{})
 }
 
 type TokenSource struct {
@@ -51,24 +53,23 @@ func (p *DigitalOceanProvider) Init(rootDomainName string) error {
 	doqps := (float64)(5000.0 / 3600.0)
 	p.limiter = ratelimit.NewBucketWithRate(doqps, 100)
 
-	p.rootDomainName = providers.UnFqdn(rootDomainName)
+	p.rootDomainName = dns.UnFqdn(rootDomainName)
 
 	// Retrieve email address associated with this PAT.
 	p.limiter.Wait(1)
-	acct, _, err := p.client.Account.Get()
+	acct, _, err := p.client.Account.Get(oauth2.NoContext)
 	if err != nil {
 		return err
 	}
 
 	// Now confirm that domain is accessible under this PAT.
 	p.limiter.Wait(1)
-	domains, _, err := p.client.Domains.Get(p.rootDomainName)
+	domains, _, err := p.client.Domains.Get(oauth2.NoContext, p.rootDomainName)
 	if err != nil {
 		return err
 	}
 
 	// DO's TTLs are domain-wide.
-	config.TTL = domains.TTL
 	logrus.Infof("Configured %s with email %s and domain %s", p.GetName(), acct.Email, domains.Name)
 	return nil
 }
@@ -79,11 +80,11 @@ func (p *DigitalOceanProvider) GetName() string {
 
 func (p *DigitalOceanProvider) HealthCheck() error {
 	p.limiter.Wait(1)
-	_, _, err := p.client.Domains.Get(p.rootDomainName)
+	_, _, err := p.client.Domains.Get(oauth2.NoContext, p.rootDomainName)
 	return err
 }
 
-func (p *DigitalOceanProvider) AddRecord(record providers.DnsRecord) error {
+func (p *DigitalOceanProvider) AddRecord(record dns.DnsRecord) error {
 	for _, r := range record.Records {
 		createRequest := &api.DomainRecordEditRequest{
 			Type: record.Type,
@@ -93,7 +94,7 @@ func (p *DigitalOceanProvider) AddRecord(record providers.DnsRecord) error {
 
 		logrus.Debugf("Creating record: %v", createRequest)
 		p.limiter.Wait(1)
-		_, _, err := p.client.Domains.CreateRecord(p.rootDomainName, createRequest)
+		_, _, err := p.client.Domains.CreateRecord(oauth2.NoContext, p.rootDomainName, createRequest)
 		if err != nil {
 			return fmt.Errorf("API call has failed: %v", err)
 		}
@@ -102,7 +103,7 @@ func (p *DigitalOceanProvider) AddRecord(record providers.DnsRecord) error {
 	return nil
 }
 
-func (p *DigitalOceanProvider) UpdateRecord(record providers.DnsRecord) error {
+func (p *DigitalOceanProvider) UpdateRecord(record dns.DnsRecord) error {
 	if err := p.RemoveRecord(record); err != nil {
 		return err
 	}
@@ -110,7 +111,7 @@ func (p *DigitalOceanProvider) UpdateRecord(record providers.DnsRecord) error {
 	return p.AddRecord(record)
 }
 
-func (p *DigitalOceanProvider) RemoveRecord(record providers.DnsRecord) error {
+func (p *DigitalOceanProvider) RemoveRecord(record dns.DnsRecord) error {
 	// We need to fetch paginated results to get all records
 	doRecords, err := p.fetchDoRecords()
 	if err != nil {
@@ -123,7 +124,7 @@ func (p *DigitalOceanProvider) RemoveRecord(record providers.DnsRecord) error {
 		if fqdn == record.Fqdn && rec.Type == record.Type {
 			p.limiter.Wait(1)
 			logrus.Debugf("Deleting record: %v", rec)
-			_, err := p.client.Domains.DeleteRecord(p.rootDomainName, rec.ID)
+			_, err := p.client.Domains.DeleteRecord(oauth2.NoContext, p.rootDomainName, rec.ID)
 			if err != nil {
 				return fmt.Errorf("API call has failed: %v", err)
 			}
@@ -133,8 +134,8 @@ func (p *DigitalOceanProvider) RemoveRecord(record providers.DnsRecord) error {
 	return nil
 }
 
-func (p *DigitalOceanProvider) GetRecords() ([]providers.DnsRecord, error) {
-	dnsRecords := []providers.DnsRecord{}
+func (p *DigitalOceanProvider) GetRecords() ([]dns.DnsRecord, error) {
+	dnsRecords := []dns.DnsRecord{}
 	recordMap := map[string]map[string][]string{}
 	doRecords, err := p.fetchDoRecords()
 	if err != nil {
@@ -161,12 +162,29 @@ func (p *DigitalOceanProvider) GetRecords() ([]providers.DnsRecord, error) {
 	for fqdn, recordSet := range recordMap {
 		for recordType, recordSlice := range recordSet {
 			// DigitalOcean does not have per-record TTLs.
-			dnsRecord := providers.DnsRecord{Fqdn: fqdn, Records: recordSlice, Type: recordType, TTL: config.TTL}
+			dnsRecord := dns.DnsRecord{Fqdn: fqdn, Records: recordSlice, Type: recordType, TTL: TTL}
 			dnsRecords = append(dnsRecords, dnsRecord)
 		}
 	}
 
 	return dnsRecords, nil
+}
+
+func (c *DigitalOceanProvider) GetRecord(fqdn string) (*dns.DnsRecord, error) {
+	records, err := c.GetRecords()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range records {
+		// need to sanitize
+		if r.Fqdn == dns.Fqdn(fqdn) {
+			logrus.Info(r)
+			return &r, nil
+		}
+	}
+
+	return nil, nil
 }
 
 // fetchDoRecords retrieves all records for the root domain from Digital Ocean.
@@ -178,7 +196,7 @@ func (p *DigitalOceanProvider) fetchDoRecords() ([]api.DomainRecord, error) {
 	}
 	for {
 		p.limiter.Wait(1)
-		records, resp, err := p.client.Domains.Records(p.rootDomainName, opt)
+		records, resp, err := p.client.Domains.Records(oauth2.NoContext, p.rootDomainName, opt)
 		if err != nil {
 			return nil, fmt.Errorf("API call has failed: %v", err)
 		}
@@ -212,5 +230,5 @@ func (p *DigitalOceanProvider) nameToFqdn(name string) string {
 		fqdn = strings.Join(names, ".")
 	}
 
-	return providers.Fqdn(fqdn)
+	return dns.Fqdn(fqdn)
 }

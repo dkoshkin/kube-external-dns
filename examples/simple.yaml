@@ -4,8 +4,8 @@ kind: Service
 metadata:
   name: test-service
   annotations:
-    kube.external.dns.io/provider: "cloudflare"
-    kube.external.dns.io/root-domain: "koshk.in"
+    external.dns.koshk.in/provider: "cloudflare"
+    external.dns.koshk.in/root-domain: "koshk.in"
 spec:
   selector:
     k8s-app: test-app

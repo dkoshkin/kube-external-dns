@@ -4,24 +4,25 @@ import (
 	"fmt"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/dkoshkin/kube-external-dns/providers"
 	"k8s.io/client-go/pkg/api/v1"
+
+	dnsprovider "github.com/dkoshkin/kube-external-dns/pkg/provider/dns"
 )
 
-var providerAnnotation = "kube.external.dns.io/provider"
-var rootDomainAnnotation = "kube.external.dns.io/root-domain"
-var subDomainAnnotation = "kube.external.dns.io/sub-domain" //optional: name.namespace.$domain
-//var ttlAnnotation = "kube.external.dns.io/TTL"              //optional: 300 seconds
+var providerAnnotation = "external.dns.koshk.in/provider"
+var rootDomainAnnotation = "external.dns.koshk.in/root-domain"
+var subDomainAnnotation = "external.dns.koshk.in/sub-domain" //optional: name.namespace.$domain
+//var ttlAnnotation = "external.dns.koshk.in/TTL"              //optional: 120 seconds
 
-// HandleUpsertEvent will create or update a record if exists
-func HandleUpsertEvent(service *v1.Service) error {
+// UpsertToDNSProvider will create or update a record if exists, in an external DNS provider
+func UpsertToDNSProvider(service *v1.Service) (changed bool, record *dnsprovider.DnsRecord, err error) {
 	mngr, err := GetManager(service)
 	if err != nil {
-		return err
+		return false, nil, err
 	}
 	// nothing to do
 	if mngr == nil {
-		return nil
+		return false, nil, nil
 	}
 
 	fqdn := mngr.DNSRecord.Fqdn
@@ -29,31 +30,33 @@ func HandleUpsertEvent(service *v1.Service) error {
 	found, err := mngr.GetRecord()
 	// check if record already exists
 	if err != nil {
-		return fmt.Errorf("%s: could not determine if record '%s' exists: %v", name, fqdn, err)
+		return false, nil, fmt.Errorf("%s: could not determine if record '%s' exists: %v", name, fqdn, err)
 	}
 	if found == nil {
 		logrus.Infof("%s: is not already set, will be creating a new record", name)
-		return mngr.InsertRecord()
+		err := mngr.InsertRecord()
+		return err == nil, mngr.DNSRecord, err
 	}
 	if !slicesSimilar(found.Records, mngr.DNSRecord.Records) {
 		logrus.Warnf("%s: is set but contains different records, will be updating it", name)
-		return mngr.UpdateRecord()
+		err := mngr.UpdateRecord()
+		return err == nil, mngr.DNSRecord, err
 	}
 
 	logrus.Infof("%s: is already configured, nothing to do", name)
 
-	return nil
+	return false, mngr.DNSRecord, nil
 }
 
-// HandleDeleteEvent will delete a record
-func HandleDeleteEvent(service *v1.Service) error {
+// DeleteToDNSProvider will delete a record
+func DeleteToDNSProvider(service *v1.Service) (changed bool, record *dnsprovider.DnsRecord, err error) {
 	mngr, err := GetManager(service)
 	if err != nil {
-		return err
+		return false, nil, err
 	}
 	// nothing to do
 	if mngr == nil {
-		return nil
+		return false, nil, nil
 	}
 
 	// check if record exists
@@ -61,18 +64,19 @@ func HandleDeleteEvent(service *v1.Service) error {
 	fqdn := mngr.DNSRecord.Fqdn
 	found, err := mngr.GetRecord()
 	if err != nil {
-		return fmt.Errorf("%s: could not determine if record '%s' exists: %v", name, fqdn, err)
+		return false, nil, fmt.Errorf("%s: could not determine if record '%s' exists: %v", name, fqdn, err)
 	}
 	if found == nil {
-		return fmt.Errorf("%s: expected record but it was not found", name)
+		return false, nil, fmt.Errorf("%s: expected record but it was not found", name)
 	}
 
 	logrus.Infof("%s: record found, will be deleting it", name)
-	return mngr.DeleteRecord()
+	err = mngr.DeleteRecord()
+	return err == nil, mngr.DNSRecord, err
 }
 
 // GetManager parses the v1.Service object and returns a DNS manager
-func GetManager(service *v1.Service) (*DNSManager, error) {
+func GetManager(service *v1.Service) (*DNSController, error) {
 	if service == nil {
 		logrus.Warn("service object is nil")
 		return nil, nil
@@ -106,7 +110,7 @@ func GetManager(service *v1.Service) (*DNSManager, error) {
 		return nil, nil
 	}
 
-	provider, err := providers.GetProvider(providerStr, rootDomain)
+	dnsProvider, err := dnsprovider.GetProvider(providerStr, rootDomain)
 	if err != nil {
 		return nil, fmt.Errorf("%s: error getting provider: %v", service.Name, err)
 	}
@@ -118,10 +122,10 @@ func GetManager(service *v1.Service) (*DNSManager, error) {
 
 	fqdn := fmt.Sprintf("%s.%s", subDomain, rootDomain)
 
-	mngr := DNSManager{
+	mngr := DNSController{
 		ServiceName: service.Name,
-		Provider:    provider,
-		DNSRecord: &providers.DnsRecord{
+		Provider:    dnsProvider,
+		DNSRecord: &dnsprovider.DnsRecord{
 			Fqdn:    fqdn,
 			Records: records,
 			Type:    "A", // always default to "A" for now,
@@ -132,27 +136,27 @@ func GetManager(service *v1.Service) (*DNSManager, error) {
 	return &mngr, nil
 }
 
-// DNSManager handles creating, updating and deleting DNS records
-type DNSManager struct {
+// DNSController handles creating, updating and deleting DNS records
+type DNSController struct {
 	ServiceName string
-	Provider    providers.Provider
-	DNSRecord   *providers.DnsRecord
+	Provider    dnsprovider.Provider
+	DNSRecord   *dnsprovider.DnsRecord
 }
 
-func (mngr *DNSManager) GetRecord() (*providers.DnsRecord, error) {
+func (mngr *DNSController) GetRecord() (*dnsprovider.DnsRecord, error) {
 	fqdn := mngr.DNSRecord.Fqdn
 	return mngr.Provider.GetRecord(fqdn)
 }
 
-func (mngr *DNSManager) InsertRecord() error {
+func (mngr *DNSController) InsertRecord() error {
 	return mngr.Provider.AddRecord(*mngr.DNSRecord)
 }
 
-func (mngr *DNSManager) UpdateRecord() error {
+func (mngr *DNSController) UpdateRecord() error {
 	return mngr.Provider.UpdateRecord(*mngr.DNSRecord)
 }
 
-func (mngr *DNSManager) DeleteRecord() error {
+func (mngr *DNSController) DeleteRecord() error {
 	return mngr.Provider.RemoveRecord(*mngr.DNSRecord)
 }
 

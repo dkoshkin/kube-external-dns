@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/dkoshkin/kube-external-dns/providers"
+	"github.com/dkoshkin/kube-external-dns/pkg/provider/dns"
 	"github.com/juju/ratelimit"
 	api "github.com/weppos/go-dnsimple/dnsimple"
 )
@@ -19,7 +19,7 @@ type DNSimpleProvider struct {
 
 func init() {
 	logrus.Info("Registering 'dnsimple' provider")
-	providers.RegisterProvider("dnsimple", &DNSimpleProvider{})
+	dns.RegisterProvider("dnsimple", &DNSimpleProvider{})
 }
 
 func (d *DNSimpleProvider) Init(rootDomainName string) error {
@@ -32,7 +32,7 @@ func (d *DNSimpleProvider) Init(rootDomainName string) error {
 		return fmt.Errorf("DNSIMPLE_TOKEN is not set")
 	}
 
-	d.root = providers.UnFqdn(rootDomainName)
+	d.root = dns.UnFqdn(rootDomainName)
 	d.client = api.NewClient(apiToken, email)
 	d.limiter = ratelimit.NewBucketWithRate(1.5, 5)
 
@@ -67,12 +67,12 @@ func (d *DNSimpleProvider) HealthCheck() error {
 	return err
 }
 
-func (d *DNSimpleProvider) parseName(record providers.DnsRecord) string {
+func (d *DNSimpleProvider) parseName(record dns.DnsRecord) string {
 	name := strings.TrimSuffix(record.Fqdn, fmt.Sprintf(".%s.", d.root))
 	return name
 }
 
-func (d *DNSimpleProvider) AddRecord(record providers.DnsRecord) error {
+func (d *DNSimpleProvider) AddRecord(record dns.DnsRecord) error {
 	name := d.parseName(record)
 	for _, rec := range record.Records {
 		recordInput := api.Record{
@@ -91,7 +91,7 @@ func (d *DNSimpleProvider) AddRecord(record providers.DnsRecord) error {
 	return nil
 }
 
-func (d *DNSimpleProvider) findRecords(record providers.DnsRecord) ([]api.Record, error) {
+func (d *DNSimpleProvider) findRecords(record dns.DnsRecord) ([]api.Record, error) {
 	var records []api.Record
 
 	d.limiter.Wait(1)
@@ -110,7 +110,7 @@ func (d *DNSimpleProvider) findRecords(record providers.DnsRecord) ([]api.Record
 	return records, nil
 }
 
-func (d *DNSimpleProvider) UpdateRecord(record providers.DnsRecord) error {
+func (d *DNSimpleProvider) UpdateRecord(record dns.DnsRecord) error {
 	err := d.RemoveRecord(record)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (d *DNSimpleProvider) UpdateRecord(record providers.DnsRecord) error {
 	return d.AddRecord(record)
 }
 
-func (d *DNSimpleProvider) RemoveRecord(record providers.DnsRecord) error {
+func (d *DNSimpleProvider) RemoveRecord(record dns.DnsRecord) error {
 	records, err := d.findRecords(record)
 	if err != nil {
 		return err
@@ -136,8 +136,8 @@ func (d *DNSimpleProvider) RemoveRecord(record providers.DnsRecord) error {
 	return nil
 }
 
-func (d *DNSimpleProvider) GetRecords() ([]providers.DnsRecord, error) {
-	var records []providers.DnsRecord
+func (d *DNSimpleProvider) GetRecords() ([]dns.DnsRecord, error) {
+	var records []dns.DnsRecord
 
 	d.limiter.Wait(1)
 	recordResp, _, err := d.client.Domains.ListRecords(d.root, "", "")
@@ -176,14 +176,14 @@ func (d *DNSimpleProvider) GetRecords() ([]providers.DnsRecord, error) {
 	for fqdn, recordSet := range recordMap {
 		for recordType, recordSlice := range recordSet {
 			ttl := recordTTLs[fqdn][recordType]
-			record := providers.DnsRecord{Fqdn: fqdn, Records: recordSlice, Type: recordType, TTL: ttl}
+			record := dns.DnsRecord{Fqdn: fqdn, Records: recordSlice, Type: recordType, TTL: ttl}
 			records = append(records, record)
 		}
 	}
 	return records, nil
 }
 
-func (c *DNSimpleProvider) GetRecord(fqdn string) (*providers.DnsRecord, error) {
+func (c *DNSimpleProvider) GetRecord(fqdn string) (*dns.DnsRecord, error) {
 	records, err := c.GetRecords()
 	if err != nil {
 		return nil, err
@@ -191,7 +191,7 @@ func (c *DNSimpleProvider) GetRecord(fqdn string) (*providers.DnsRecord, error) 
 
 	for _, r := range records {
 		// need to sanitize
-		if r.Fqdn == providers.Fqdn(fqdn) {
+		if r.Fqdn == dns.Fqdn(fqdn) {
 			logrus.Info(r)
 			return &r, nil
 		}
